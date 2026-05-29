@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Login{% endblock %}
+{% block auth_content %}
+<div class="auth-page">
+  <div class="auth-bg">
+    <div class="auth-bg-grid"></div>
+    <div class="auth-orb auth-orb-1"></div>
+    <div class="auth-orb auth-orb-2"></div>
+  </div>
+  <div class="auth-container">
+    <div class="auth-brand">
+      <div class="auth-logo">FP</div>
+      <h1>FinPilot</h1>
+      <p>Your AI-Powered Finance Copilot</p>
+    </div>
+    <div class="auth-card">
+      <h2>Welcome Back</h2>
+      <p class="auth-subtitle">Sign in to your account</p>
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }}">{{ message }}</div>
+        {% endfor %}
+      {% endwith %}
+      <form method="POST" action="/login">
+        <div class="form-group">
+          <label>Email Address</label>
+          <input type="email" name="email" placeholder="you@company.com" required value="admin@finpilot.com">
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <div class="input-with-toggle">
+            <input type="password" name="password" id="passwordInput" placeholder="••••••••" required value="admin123">
+            <button type="button" class="toggle-password" onclick="togglePassword()">&#128065;</button>
+          </div>
+        </div>
+        <div class="form-row-between">
+          <label class="checkbox-label">
+            <input type="checkbox" name="remember"> Remember me
+          </label>
+        </div>
+        <button type="submit" class="btn-primary btn-full">Sign In</button>
+      </form>
+      <div class="auth-divider"><span>Demo Credentials</span></div>
+      <div class="demo-creds">
+        <div class="demo-cred" onclick="fillDemo('admin@finpilot.com','admin123')">
+          <strong>Admin</strong> — admin@finpilot.com / admin123
+        </div>
+      </div>
+      <p class="auth-footer">Don't have an account? <a href="/register">Create one</a></p>
+    </div>
+  </div>
+</div>
+<script>
+function togglePassword() {
+  const inp = document.getElementById('passwordInput');
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+function fillDemo(email, pass) {
+  document.querySelector('[name=email]').value = email;
+  document.querySelector('[name=password]').value = pass;
+}
+</script>
+{% endblock %}

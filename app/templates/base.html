@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}FinPilot{% endblock %} — AI Finance Assistant</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+{% if current_user.is_authenticated %}
+<div class="app-layout">
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="logo">
+        <div class="logo-icon">FP</div>
+        <span class="logo-text">FinPilot</span>
+      </div>
+      <button class="sidebar-close" onclick="toggleSidebar()">&#10005;</button>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="nav-group-label">Overview</div>
+      <a href="/dashboard" class="nav-item {% if request.path == '/dashboard' %}active{% endif %}">
+        <span class="nav-icon">⊞</span><span class="nav-label">Dashboard</span>
+      </a>
+      <a href="/insights" class="nav-item {% if '/insights' in request.path %}active{% endif %}">
+        <span class="nav-icon">🧠</span><span class="nav-label">CFO Insights</span>
+        <span class="nav-badge nav-badge-ai">AI</span>
+      </a>
+      <a href="/forecasting" class="nav-item {% if '/forecasting' in request.path %}active{% endif %}">
+        <span class="nav-icon">📈</span><span class="nav-label">Forecasting</span>
+      </a>
+
+      <div class="nav-group-label">Finance</div>
+      <a href="/expenses" class="nav-item {% if '/expenses' in request.path %}active{% endif %}">
+        <span class="nav-icon">💸</span><span class="nav-label">Expenses</span>
+      </a>
+      <a href="/invoices" class="nav-item {% if '/invoices' in request.path %}active{% endif %}">
+        <span class="nav-icon">📄</span><span class="nav-label">Invoices</span>
+      </a>
+      <a href="/budgets" class="nav-item {% if '/budgets' in request.path %}active{% endif %}">
+        <span class="nav-icon">🎯</span><span class="nav-label">Budgets</span>
+      </a>
+
+      <div class="nav-group-label">Intelligence</div>
+      <a href="/reports" class="nav-item {% if '/reports' in request.path %}active{% endif %}">
+        <span class="nav-icon">📊</span><span class="nav-label">Reports</span>
+      </a>
+      <a href="/analyzer" class="nav-item {% if '/analyzer' in request.path %}active{% endif %}">
+        <span class="nav-icon">📁</span><span class="nav-label">File Analyzer</span>
+      </a>
+      <a href="/chat" class="nav-item chat-nav {% if '/chat' in request.path %}active{% endif %}">
+        <span class="nav-icon">🤖</span><span class="nav-label">AI Copilot</span>
+        <span class="nav-badge nav-badge-ai">AI</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <a href="/settings" class="nav-item {% if '/settings' in request.path %}active{% endif %}" style="margin-bottom:8px">
+        <span class="nav-icon">⚙</span><span class="nav-label">Settings</span>
+      </a>
+      <div class="user-card">
+        <div class="user-avatar-lg">{{ current_user.name[0].upper() }}</div>
+        <div class="user-details">
+          <div class="user-name">{{ current_user.name }}</div>
+          <div class="user-role">{{ current_user.role.replace('_', ' ').title() }}</div>
+        </div>
+        <a href="/logout" class="logout-icon" title="Sign out">↩</a>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="main-content">
+    <div class="topbar">
+      <div class="topbar-left">
+        <button class="mobile-menu-btn" onclick="toggleSidebar()">☰</button>
+        <div class="breadcrumb">
+          <span class="breadcrumb-app">FinPilot</span>
+          <span class="breadcrumb-sep">/</span>
+          <span class="breadcrumb-page">{% block page_title %}{% endblock %}</span>
+        </div>
+      </div>
+      <div class="topbar-right">
+        {% block topbar_actions %}{% endblock %}
+        <div class="notif-btn" onclick="toggleNotifPanel()" id="notifTrigger">
+          <span>🔔</span>
+          <span class="notif-dot" id="notifDot" style="display:none"></span>
+        </div>
+        <div class="topbar-theme">
+          <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">☀</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Notification Panel -->
+    <div class="notif-panel" id="notifPanel">
+      <div class="notif-panel-header">
+        <h3>Notifications</h3>
+        <button onclick="toggleNotifPanel()">✕</button>
+      </div>
+      <div id="notifList"><div class="notif-loading">Loading...</div></div>
+    </div>
+    <div class="notif-overlay" id="notifOverlay" onclick="toggleNotifPanel()"></div>
+
+    <div class="content-area">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="alert alert-{{ category }}">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+</div>
+{% else %}
+{% block auth_content %}{% endblock %}
+{% endif %}
+
+<div class="toast-container" id="toastContainer"></div>
+
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+{% block scripts %}{% endblock %}
+{% if current_user.is_authenticated %}
+<script>
+async function loadNotifications() {
+  const data = await api('/api/insights/notifications');
+  const list = document.getElementById('notifList');
+  const dot = document.getElementById('notifDot');
+  if (!data.notifications) return;
+  if (data.count > 0) dot.style.display = 'block';
+  if (!data.notifications.length) {
+    list.innerHTML = '<div class="notif-empty">✓ All caught up! No alerts.</div>';
+    return;
+  }
+  list.innerHTML = data.notifications.map(n => `
+    <a href="${n.link}" class="notif-item notif-${n.type}" onclick="toggleNotifPanel()">
+      <div class="notif-icon">${n.icon}</div>
+      <div class="notif-body"><div class="notif-title">${n.title}</div><div class="notif-msg">${n.message}</div></div>
+    </a>`).join('');
+}
+loadNotifications();
+</script>
+{% endif %}
+</body>
+</html>

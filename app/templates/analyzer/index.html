@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% block title %}File Analyzer{% endblock %}
+{% block page_title %}File Analyzer{% endblock %}
+{% block content %}
+<div class="page-section">
+  <div class="analyzer-layout">
+    <div class="analyzer-upload-area">
+      <div class="card">
+        <h3>Upload Financial File</h3>
+        <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()"
+             ondragover="event.preventDefault();this.classList.add('drag-over')"
+             ondragleave="this.classList.remove('drag-over')"
+             ondrop="handleDrop(event)">
+          <div class="upload-icon">&#128196;</div>
+          <div class="upload-title">Drop file here or click to browse</div>
+          <div class="upload-sub">Supports Excel (.xlsx, .xls), CSV, PDF</div>
+        </div>
+        <input type="file" id="fileInput" hidden accept=".xlsx,.xls,.csv,.pdf" onchange="handleFile(event)">
+        <div id="uploadProgress" class="upload-progress hidden">
+          <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+          <p id="progressText">Analyzing...</p>
+        </div>
+      </div>
+
+      <div class="card mt-4">
+        <h3>Recent Analyses</h3>
+        <div id="fileHistory"></div>
+      </div>
+    </div>
+
+    <div class="analyzer-result" id="analyzerResult">
+      <div class="report-empty">
+        <div class="report-empty-icon">&#128196;</div>
+        <h3>No File Analyzed</h3>
+        <p>Upload an Excel, CSV, or PDF file to get instant AI-powered financial insights.</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('uploadZone').classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) uploadFile(file);
+}
+
+function handleFile(e) {
+  const file = e.target.files[0];
+  if (file) uploadFile(file);
+}
+
+async function uploadFile(file) {
+  const allowed = ['xlsx','xls','csv','pdf'];
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (!allowed.includes(ext)) { toast('Invalid file type','error'); return; }
+
+  document.getElementById('uploadProgress').classList.remove('hidden');
+  document.getElementById('progressText').textContent = `Uploading ${file.name}...`;
+  animateProgress();
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const res = await fetch('/api/analyzer/upload', {method:'POST', body:formData});
+    const data = await res.json();
+    document.getElementById('uploadProgress').classList.add('hidden');
+
+    if (data.success) {
+      renderAnalysis(file.name, data.analysis);
+      loadHistory();
+      toast('File analyzed successfully!', 'success');
+    } else {
+      toast(data.error || 'Upload failed', 'error');
+    }
+  } catch(e) {
+    document.getElementById('uploadProgress').classList.add('hidden');
+    toast('Upload failed: '+e.message, 'error');
+  }
+}
+
+function animateProgress() {
+  let p = 0;
+  const interval = setInterval(() => {
+    p = Math.min(p + Math.random()*15, 90);
+    document.getElementById('progressFill').style.width = p+'%';
+    if (p >= 90) clearInterval(interval);
+  }, 300);
+}
+
+function renderAnalysis(filename, a) {
+  const el = document.getElementById('analyzerResult');
+  const isPdf = filename.endsWith('.pdf');
+  let statsHtml = '';
+
+  if (!isPdf && a.summary) {
+    statsHtml = Object.entries(a.summary).map(([col,s]) => `
+      <div class="stat-col-card">
+        <div class="stat-col-name">${col}</div>
+        <div class="stat-col-grid">
+          <div><span class="stat-label">Min</span><span>${s.min?.toLocaleString()}</span></div>
+          <div><span class="stat-label">Max</span><span>${s.max?.toLocaleString()}</span></div>
+          <div><span class="stat-label">Mean</span><span>${s.mean?.toLocaleString()}</span></div>
+          <div><span class="stat-label">Sum</span><span>${s.sum?.toLocaleString()}</span></div>
+        </div>
+      </div>`).join('');
+  }
+
+  el.innerHTML = `
+    <div class="report-doc">
+      <div class="report-doc-header">
+        <h2>Analysis: ${filename}</h2>
+        <span class="badge badge-blue">${isPdf?'PDF':'Spreadsheet'}</span>
+      </div>
+
+      ${!isPdf ? `
+      <div class="report-kpis">
+        <div class="report-kpi"><div class="report-kpi-label">Rows</div><div class="report-kpi-val">${a.rows?.toLocaleString()||'—'}</div></div>
+        <div class="report-kpi"><div class="report-kpi-label">Columns</div><div class="report-kpi-val">${a.columns||'—'}</div></div>
+        <div class="report-kpi"><div class="report-kpi-label">Missing Values</div><div class="report-kpi-val ${a.missing_values>0?'text-amber':'text-green'}">${a.missing_values??'—'}</div></div>
+        <div class="report-kpi"><div class="report-kpi-label">Anomalies</div><div class="report-kpi-val ${a.anomalies?.length?'text-red':'text-green'}">${a.anomalies?.length||0}</div></div>
+      </div>` : `
+      <div class="report-kpis">
+        <div class="report-kpi"><div class="report-kpi-label">Pages</div><div class="report-kpi-val">${a.pages||'—'}</div></div>
+        <div class="report-kpi"><div class="report-kpi-label">Word Count</div><div class="report-kpi-val">${a.word_count?.toLocaleString()||'—'}</div></div>
+      </div>`}
+
+      ${a.ai_insights ? `
+      <div class="report-section">
+        <h3>&#129302; AI Financial Insights</h3>
+        <div class="ai-summary">${marked.parse(a.ai_insights)}</div>
+      </div>` : ''}
+
+      ${statsHtml ? `<div class="report-section"><h3>&#128202; Column Statistics</h3><div class="stat-cols-grid">${statsHtml}</div></div>` : ''}
+
+      ${a.anomalies?.length ? `
+      <div class="report-section">
+        <h3>&#9888; Anomalies Detected</h3>
+        ${a.anomalies.map(x => `<div class="anomaly-item">&#9888; ${x}</div>`).join('')}
+      </div>` : ''}
+
+      ${isPdf && a.preview ? `
+      <div class="report-section">
+        <h3>&#128196; Extracted Text Preview</h3>
+        <div class="pdf-preview">${a.preview}</div>
+      </div>` : ''}
+    </div>`;
+}
+
+async function loadHistory() {
+  const files = await api('/api/analyzer/files');
+  const el = document.getElementById('fileHistory');
+  if (!files.length) { el.innerHTML='<p class="text-muted text-sm">No files analyzed yet</p>'; return; }
+  el.innerHTML = files.map(f => `
+    <div class="history-item" onclick="loadAnalysis(${f.id})" style="cursor:pointer">
+      <div class="history-title">${f.original_name}</div>
+      <div class="history-meta">${f.file_type} · ${f.created_at}</div>
+    </div>`).join('');
+}
+
+async function loadAnalysis(id) {
+  const data = await api(`/api/analyzer/files/${id}`);
+  renderAnalysis(data.original_name, data.analysis);
+}
+
+loadHistory();
+</script>
+{% endblock %}

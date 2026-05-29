@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% block title %}Expenses{% endblock %}
+{% block page_title %}Expense Management{% endblock %}
+{% block topbar_actions %}
+<button class="btn-primary" onclick="openModal('addExpenseModal')">+ Add Expense</button>
+{% endblock %}
+{% block content %}
+<div class="page-section">
+
+  <!-- Summary Cards -->
+  <div class="mini-stats" id="expSummary"></div>
+
+  <!-- Filters -->
+  <div class="filter-bar">
+    <input type="text" id="searchInput" placeholder="Search expenses..." onInput="filterExpenses()" class="search-input">
+    <select id="categoryFilter" onchange="filterExpenses()" class="select-input">
+      <option value="">All Categories</option>
+      {% for cat in categories %}
+      <option value="{{ cat }}">{{ cat }}</option>
+      {% endfor %}
+    </select>
+    <button class="btn-outline" onclick="loadExpenses()">&#8635; Refresh</button>
+    <a href="/api/expenses/export" class="btn-outline" download>⬇ Export CSV</a>
+  </div>
+
+  <!-- Table -->
+  <div class="table-card">
+    <table class="data-table" id="expensesTable">
+      <thead>
+        <tr><th>Date</th><th>Title</th><th>Category</th><th>Amount</th><th>Recurring</th><th>Actions</th></tr>
+      </thead>
+      <tbody id="expensesBody"><tr><td colspan="6" class="loading-row">Loading...</td></tr></tbody>
+    </table>
+    <div class="pagination" id="pagination"></div>
+  </div>
+</div>
+
+<!-- Add/Edit Modal -->
+<div class="modal-overlay" id="addExpenseModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modalTitle">Add Expense</h3>
+      <button class="modal-close" onclick="closeModal('addExpenseModal')">&#10005;</button>
+    </div>
+    <form id="expenseForm">
+      <input type="hidden" id="expId">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Title *</label>
+          <input type="text" id="expTitle" required placeholder="Expense description">
+        </div>
+        <div class="form-group">
+          <label>Amount ($) *</label>
+          <input type="number" id="expAmount" required min="0" step="0.01" placeholder="0.00">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Category *</label>
+          <select id="expCategory" required>
+            {% for cat in categories %}<option>{{ cat }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Date *</label>
+          <input type="date" id="expDate" required>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <textarea id="expDesc" rows="2" placeholder="Optional notes..."></textarea>
+      </div>
+      <label class="checkbox-label">
+        <input type="checkbox" id="expRecurring"> Recurring expense
+      </label>
+      <div class="modal-footer">
+        <button type="button" class="btn-outline" onclick="closeModal('addExpenseModal')">Cancel</button>
+        <button type="submit" class="btn-primary">Save Expense</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+let currentPage = 1;
+
+async function loadSummary() {
+  const data = await api('/api/expenses/summary');
+  const el = document.getElementById('expSummary');
+  el.innerHTML = data.slice(0,4).map(d => `
+    <div class="mini-stat">
+      <div class="mini-stat-label">${d.category}</div>
+      <div class="mini-stat-value">${fmt(d.total)}</div>
+      <div class="mini-stat-sub">${d.count} transactions</div>
+    </div>`).join('');
+}
+
+async function loadExpenses(page=1) {
+  currentPage = page;
+  const search = document.getElementById('searchInput').value;
+  const cat = document.getElementById('categoryFilter').value;
+  const data = await api(`/api/expenses?page=${page}&search=${encodeURIComponent(search)}&category=${encodeURIComponent(cat)}`);
+  const tbody = document.getElementById('expensesBody');
+  if (!data.expenses.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-row">No expenses found</td></tr>'; return;
+  }
+  tbody.innerHTML = data.expenses.map(e => `
+    <tr>
+      <td><span class="text-muted">${e.date}</span></td>
+      <td><strong>${e.title}</strong><br><small class="text-muted">${e.description || ''}</small></td>
+      <td><span class="badge badge-blue">${e.category}</span></td>
+      <td class="text-red font-semibold">${fmt(e.amount)}</td>
+      <td>${e.is_recurring ? '<span class="badge badge-purple">Recurring</span>' : '<span class="text-muted">—</span>'}</td>
+      <td class="actions">
+        <button class="btn-icon" onclick="editExpense(${JSON.stringify(e).replace(/"/g,'&quot;')})">&#9998;</button>
+        <button class="btn-icon btn-icon-red" onclick="deleteExpense(${e.id})">&#128465;</button>
+      </td>
+    </tr>`).join('');
+
+  const pages = document.getElementById('pagination');
+  pages.innerHTML = '';
+  if (data.pages > 1) {
+    for (let i=1; i<=data.pages; i++) {
+      pages.innerHTML += `<button class="page-btn ${i===page?'active':''}" onclick="loadExpenses(${i})">${i}</button>`;
+    }
+  }
+}
+
+function filterExpenses() { loadExpenses(1); }
+
+document.getElementById('expDate').value = new Date().toISOString().split('T')[0];
+
+document.getElementById('expenseForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const id = document.getElementById('expId').value;
+  const payload = {
+    title: document.getElementById('expTitle').value,
+    amount: document.getElementById('expAmount').value,
+    category: document.getElementById('expCategory').value,
+    date: document.getElementById('expDate').value,
+    description: document.getElementById('expDesc').value,
+    is_recurring: document.getElementById('expRecurring').checked
+  };
+  const url = id ? `/api/expenses/${id}` : '/api/expenses';
+  const method = id ? 'PUT' : 'POST';
+  const res = await api(url, { method, body: JSON.stringify(payload) });
+  if (res.success) {
+    toast('Expense saved!', 'success');
+    closeModal('addExpenseModal'); loadExpenses(currentPage); loadSummary();
+  }
+});
+
+function editExpense(e) {
+  document.getElementById('modalTitle').textContent = 'Edit Expense';
+  document.getElementById('expId').value = e.id;
+  document.getElementById('expTitle').value = e.title;
+  document.getElementById('expAmount').value = e.amount;
+  document.getElementById('expCategory').value = e.category;
+  document.getElementById('expDate').value = e.date;
+  document.getElementById('expDesc').value = e.description || '';
+  document.getElementById('expRecurring').checked = e.is_recurring;
+  openModal('addExpenseModal');
+}
+
+async function deleteExpense(id) {
+  if (!confirm('Delete this expense?')) return;
+  await api(`/api/expenses/${id}`, { method: 'DELETE' });
+  toast('Expense deleted', 'success'); loadExpenses(currentPage); loadSummary();
+}
+
+loadExpenses(); loadSummary();
+</script>
+{% endblock %}

@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}Budgets{% endblock %}
+{% block page_title %}Budget Planning{% endblock %}
+{% block topbar_actions %}
+<button class="btn-outline" onclick="syncBudgets()">&#8635; Sync from Expenses</button>
+<button class="btn-primary" onclick="openModal('budgetModal')">+ New Budget</button>
+{% endblock %}
+{% block content %}
+<div class="page-section">
+
+  <div class="alerts-banner" id="alertsBanner"></div>
+
+  <div class="budgets-grid" id="budgetsGrid">
+    <div class="loading-placeholder">Loading budgets...</div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="budgetModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="budgetModalTitle">New Budget</h3>
+      <button class="modal-close" onclick="closeModal('budgetModal')">&#10005;</button>
+    </div>
+    <form id="budgetForm">
+      <input type="hidden" id="budgetId">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Budget Name *</label>
+          <input type="text" id="budgetName" required placeholder="e.g. Q4 Marketing Budget">
+        </div>
+        <div class="form-group">
+          <label>Category *</label>
+          <select id="budgetCategory" required>
+            {% for cat in categories %}<option>{{ cat }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Allocated Amount ($) *</label>
+          <input type="number" id="budgetAllocated" required min="0" step="0.01" placeholder="10000.00">
+        </div>
+        <div class="form-group">
+          <label>Period</label>
+          <select id="budgetPeriod">
+            <option value="monthly">Monthly</option>
+            <option value="quarterly">Quarterly</option>
+            <option value="annual">Annual</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Alert Threshold (%)</label>
+        <input type="number" id="budgetThreshold" value="80" min="1" max="100">
+        <small class="form-hint">Get alerted when spending reaches this % of budget</small>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-outline" onclick="closeModal('budgetModal')">Cancel</button>
+        <button type="submit" class="btn-primary">Save Budget</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+async function loadAlerts() {
+  const alerts = await api('/api/budgets/alerts');
+  const el = document.getElementById('alertsBanner');
+  if (!alerts.length) { el.innerHTML = ''; return; }
+  el.innerHTML = `<div class="alert-row">
+    <strong>&#9888; Budget Alerts:</strong>
+    ${alerts.map(a => `<span class="alert-tag ${a.status==='exceeded'?'tag-red':'tag-amber'}">${a.category}: ${a.utilization}%</span>`).join('')}
+  </div>`;
+}
+
+async function loadBudgets() {
+  const budgets = await api('/api/budgets');
+  const el = document.getElementById('budgetsGrid');
+  if (!budgets.length) {
+    el.innerHTML = '<div class="empty-state"><p>No budgets yet. Create your first budget to start tracking.</p></div>'; return;
+  }
+  el.innerHTML = budgets.map(b => {
+    const pct = Math.min(b.utilization, 100);
+    const over = b.utilization >= 100;
+    const warning = b.utilization >= b.alert_threshold;
+    const color = over ? '#f43f5e' : warning ? '#f59e0b' : '#10b981';
+    const remaining = b.allocated - b.spent;
+    return `<div class="budget-card ${over?'budget-over':warning?'budget-warn':''}">
+      <div class="budget-card-header">
+        <div>
+          <div class="budget-card-title">${b.name}</div>
+          <div class="budget-card-cat"><span class="badge badge-blue">${b.category}</span> <span class="badge badge-gray">${b.period}</span></div>
+        </div>
+        <div class="budget-card-actions">
+          <button class="btn-icon" onclick="editBudget(${JSON.stringify(b).replace(/"/g,'&quot;')})">&#9998;</button>
+          <button class="btn-icon btn-icon-red" onclick="deleteBudget(${b.id})">&#128465;</button>
+        </div>
+      </div>
+      <div class="budget-meter">
+        <div class="budget-meter-bar"><div class="budget-meter-fill" style="width:${pct}%;background:${color}"></div></div>
+        <div class="budget-meter-labels">
+          <span style="color:${color};font-weight:600">${b.utilization}% used</span>
+          <span class="text-muted">Alert at ${b.alert_threshold}%</span>
+        </div>
+      </div>
+      <div class="budget-card-amounts">
+        <div class="budget-stat"><div class="budget-stat-label">Allocated</div><div class="budget-stat-val">${fmt(b.allocated)}</div></div>
+        <div class="budget-stat"><div class="budget-stat-label">Spent</div><div class="budget-stat-val text-red">${fmt(b.spent)}</div></div>
+        <div class="budget-stat"><div class="budget-stat-label">Remaining</div><div class="budget-stat-val ${remaining<0?'text-red':'text-green'}">${fmt(Math.abs(remaining))}${remaining<0?' over':''}</div></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+document.getElementById('budgetForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const id = document.getElementById('budgetId').value;
+  const payload = {
+    name: document.getElementById('budgetName').value,
+    category: document.getElementById('budgetCategory').value,
+    allocated: document.getElementById('budgetAllocated').value,
+    period: document.getElementById('budgetPeriod').value,
+    alert_threshold: document.getElementById('budgetThreshold').value
+  };
+  const url = id ? `/api/budgets/${id}` : '/api/budgets';
+  const method = id ? 'PUT' : 'POST';
+  const res = await api(url, {method, body:JSON.stringify(payload)});
+  if (res.success) { toast('Budget saved!','success'); closeModal('budgetModal'); loadBudgets(); loadAlerts(); }
+});
+
+function editBudget(b) {
+  document.getElementById('budgetModalTitle').textContent = 'Edit Budget';
+  document.getElementById('budgetId').value = b.id;
+  document.getElementById('budgetName').value = b.name;
+  document.getElementById('budgetCategory').value = b.category;
+  document.getElementById('budgetAllocated').value = b.allocated;
+  document.getElementById('budgetPeriod').value = b.period;
+  document.getElementById('budgetThreshold').value = b.alert_threshold;
+  openModal('budgetModal');
+}
+
+async function deleteBudget(id) {
+  if (!confirm('Delete this budget?')) return;
+  await api(`/api/budgets/${id}`, {method:'DELETE'});
+  toast('Budget deleted','success'); loadBudgets();
+}
+
+async function syncBudgets() {
+  const res = await api('/api/budgets/sync');
+  toast(`Synced ${res.synced} budgets from expenses`, 'success');
+  loadBudgets(); loadAlerts();
+}
+
+loadBudgets(); loadAlerts();
+</script>
+{% endblock %}

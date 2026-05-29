@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% block title %}Invoices{% endblock %}
+{% block page_title %}Invoice Management{% endblock %}
+{% block topbar_actions %}
+<button class="btn-primary" onclick="openModal('invoiceModal')">+ New Invoice</button>
+{% endblock %}
+{% block content %}
+<div class="page-section">
+
+  <div class="mini-stats" id="invStats"></div>
+
+  <div class="filter-bar">
+    <input type="text" id="invSearch" placeholder="Search client or invoice #..." onInput="loadInvoices()" class="search-input">
+    <select id="invStatus" onchange="loadInvoices()" class="select-input">
+      <option value="">All Status</option>
+      <option value="paid">Paid</option>
+      <option value="unpaid">Unpaid</option>
+      <option value="overdue">Overdue</option>
+      <option value="draft">Draft</option>
+    </select>
+  </div>
+
+  <div class="table-card">
+    <table class="data-table">
+      <thead><tr><th>Invoice #</th><th>Client</th><th>Amount</th><th>Status</th><th>Issue Date</th><th>Due Date</th><th>Actions</th></tr></thead>
+      <tbody id="invoicesBody"><tr><td colspan="7" class="loading-row">Loading...</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Invoice Modal -->
+<div class="modal-overlay" id="invoiceModal">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <h3>Create Invoice</h3>
+      <button class="modal-close" onclick="closeModal('invoiceModal')">&#10005;</button>
+    </div>
+    <form id="invoiceForm">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Client Name *</label>
+          <input type="text" id="invClient" required placeholder="Acme Corp">
+        </div>
+        <div class="form-group">
+          <label>Client Email</label>
+          <input type="email" id="invEmail" placeholder="billing@client.com">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Issue Date</label>
+          <input type="date" id="invIssue">
+        </div>
+        <div class="form-group">
+          <label>Due Date</label>
+          <input type="date" id="invDue">
+        </div>
+      </div>
+
+      <div class="items-section">
+        <div class="items-header"><h4>Line Items</h4><button type="button" class="btn-outline btn-sm" onclick="addItem()">+ Add Item</button></div>
+        <div id="itemsList"></div>
+        <div class="totals-row">
+          <div></div>
+          <div class="totals">
+            <div class="total-row"><span>Subtotal:</span><span id="subtotalDisplay">$0.00</span></div>
+            <div class="total-row">
+              <span>Tax: <input type="number" id="taxRate" value="10" min="0" max="100" step="0.5" onInput="calcTotals()" class="tax-input">%</span>
+              <span id="taxDisplay">$0.00</span>
+            </div>
+            <div class="total-row total-final"><span>Total:</span><span id="totalDisplay">$0.00</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Notes</label>
+        <textarea id="invNotes" rows="2" placeholder="Payment terms, additional info..."></textarea>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-outline" onclick="closeModal('invoiceModal')">Cancel</button>
+        <button type="submit" class="btn-primary">Create Invoice</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+let items = [{desc:'',qty:1,rate:0,amount:0}];
+
+function addItem() { items.push({desc:'',qty:1,rate:0,amount:0}); renderItems(); }
+
+function renderItems() {
+  document.getElementById('itemsList').innerHTML = items.map((it,i) => `
+    <div class="item-row">
+      <input type="text" placeholder="Description" value="${it.desc}" onInput="items[${i}].desc=this.value" class="item-desc">
+      <input type="number" placeholder="Qty" value="${it.qty}" min="1" onInput="items[${i}].qty=parseFloat(this.value)||0;calcItem(${i})" class="item-qty">
+      <input type="number" placeholder="Rate" value="${it.rate}" min="0" step="0.01" onInput="items[${i}].rate=parseFloat(this.value)||0;calcItem(${i})" class="item-rate">
+      <input type="text" placeholder="Amount" value="${fmt(it.amount)}" class="item-amount" readonly>
+      ${items.length>1?`<button type="button" onclick="items.splice(${i},1);renderItems()" class="btn-icon btn-icon-red">&#10005;</button>`:'<div></div>'}
+    </div>`).join('');
+}
+
+function calcItem(i) { items[i].amount = items[i].qty * items[i].rate; renderItems(); calcTotals(); }
+
+function calcTotals() {
+  const sub = items.reduce((s,i) => s+i.amount, 0);
+  const tax = sub * (parseFloat(document.getElementById('taxRate').value)||0) / 100;
+  document.getElementById('subtotalDisplay').textContent = fmt(sub);
+  document.getElementById('taxDisplay').textContent = fmt(tax);
+  document.getElementById('totalDisplay').textContent = fmt(sub+tax);
+}
+
+document.getElementById('invIssue').value = new Date().toISOString().split('T')[0];
+const due = new Date(); due.setDate(due.getDate()+30);
+document.getElementById('invDue').value = due.toISOString().split('T')[0];
+renderItems(); calcTotals();
+
+document.getElementById('invoiceForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const payload = {
+    client_name: document.getElementById('invClient').value,
+    client_email: document.getElementById('invEmail').value,
+    issue_date: document.getElementById('invIssue').value,
+    due_date: document.getElementById('invDue').value,
+    items: items, tax_rate: parseFloat(document.getElementById('taxRate').value)||0,
+    notes: document.getElementById('invNotes').value
+  };
+  const res = await api('/api/invoices', {method:'POST', body:JSON.stringify(payload)});
+  if (res.success) { toast('Invoice created!','success'); closeModal('invoiceModal'); loadInvoices(); loadStats(); }
+});
+
+async function loadStats() {
+  const data = await api('/api/invoices/stats');
+  const totals = {};
+  data.forEach(d => totals[d.status] = d);
+  document.getElementById('invStats').innerHTML = ['paid','unpaid','overdue'].map(s => `
+    <div class="mini-stat">
+      <div class="mini-stat-label">${s.charAt(0).toUpperCase()+s.slice(1)}</div>
+      <div class="mini-stat-value ${s==='paid'?'text-green':s==='overdue'?'text-red':'text-amber'}">${fmt(totals[s]?.total||0)}</div>
+      <div class="mini-stat-sub">${totals[s]?.count||0} invoices</div>
+    </div>`).join('');
+}
+
+async function loadInvoices() {
+  const status = document.getElementById('invStatus').value;
+  const search = document.getElementById('invSearch').value;
+  const data = await api(`/api/invoices?status=${status}&search=${encodeURIComponent(search)}`);
+  const tbody = document.getElementById('invoicesBody');
+  if (!data.length) { tbody.innerHTML='<tr><td colspan="7" class="empty-row">No invoices found</td></tr>'; return; }
+  const statusBadge = s => {
+    const colors = {paid:'badge-green',unpaid:'badge-amber',overdue:'badge-red',draft:'badge-gray'};
+    return `<span class="badge ${colors[s]||'badge-gray'}">${s}</span>`;
+  };
+  tbody.innerHTML = data.map(i => `
+    <tr>
+      <td><strong>${i.invoice_number}</strong></td>
+      <td>${i.client_name}</td>
+      <td class="font-semibold">${fmt(i.total)}</td>
+      <td>${statusBadge(i.status)}</td>
+      <td class="text-muted">${i.issue_date}</td>
+      <td class="text-muted">${i.due_date||'—'}</td>
+      <td class="actions">
+        ${i.status!=='paid'?`<button class="btn-icon btn-icon-green" onclick="markPaid(${i.id})" title="Mark Paid">&#10003;</button>`:''}
+        <button class="btn-icon btn-icon-red" onclick="deleteInv(${i.id})" title="Delete">&#128465;</button>
+      </td>
+    </tr>`).join('');
+}
+
+async function markPaid(id) {
+  await api(`/api/invoices/${id}/status`, {method:'PATCH', body:JSON.stringify({status:'paid'})});
+  toast('Marked as paid','success'); loadInvoices(); loadStats();
+}
+
+async function deleteInv(id) {
+  if (!confirm('Delete invoice?')) return;
+  await api(`/api/invoices/${id}`, {method:'DELETE'});
+  toast('Invoice deleted','success'); loadInvoices(); loadStats();
+}
+
+loadInvoices(); loadStats();
+</script>
+{% endblock %}

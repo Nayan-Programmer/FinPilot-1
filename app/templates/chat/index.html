@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% block title %}AI Copilot{% endblock %}
+{% block page_title %}AI Finance Copilot{% endblock %}
+{% block content %}
+<div class="chat-layout">
+  <!-- Sessions sidebar -->
+  <div class="chat-sidebar">
+    <button class="btn-primary btn-full" onclick="newSession()">+ New Chat</button>
+    <div class="chat-sessions" id="sessionsList"></div>
+  </div>
+
+  <!-- Chat area -->
+  <div class="chat-main">
+    <div class="chat-messages" id="chatMessages">
+      <div class="chat-welcome">
+        <div class="chat-welcome-icon">&#129302;</div>
+        <h2>FinPilot AI</h2>
+        <p>Your intelligent finance copilot. Ask me anything about your finances.</p>
+        <div class="quick-prompts">
+          <button class="quick-prompt" onclick="sendQuick('Analyze my top spending categories')">&#128202; Spending Analysis</button>
+          <button class="quick-prompt" onclick="sendQuick('What are my outstanding invoices?')">&#128203; Invoice Status</button>
+          <button class="quick-prompt" onclick="sendQuick('Give me a budget health check')">&#127919; Budget Health</button>
+          <button class="quick-prompt" onclick="sendQuick('Identify cost saving opportunities')">&#128176; Cost Savings</button>
+          <button class="quick-prompt" onclick="sendQuick('Generate executive financial summary')">&#128196; Executive Summary</button>
+          <button class="quick-prompt" onclick="sendQuick('What are financial risks I should watch?')">&#9888; Risk Analysis</button>
+        </div>
+      </div>
+    </div>
+    <div class="chat-input-area">
+      <div class="chat-input-wrap">
+        <textarea id="chatInput" placeholder="Ask about your finances, request analysis, or get AI insights..." rows="1"
+          onInput="autoResize(this)" onKeydown="handleKey(event)"></textarea>
+        <div class="chat-input-actions">
+          <button class="btn-icon" onclick="toggleVoice()" id="voiceBtn" title="Voice Input">&#127908;</button>
+          <button class="btn-primary chat-send" onclick="sendMessage()" id="sendBtn">&#10148;</button>
+        </div>
+      </div>
+      <div class="chat-hint">Press Enter to send · Shift+Enter for new line · FinPilot AI may make mistakes — verify important figures</div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+let activeSessionId = null;
+let isLoading = false;
+let recognition = null;
+
+async function loadSessions() {
+  const sessions = await api('/api/chat/sessions');
+  const el = document.getElementById('sessionsList');
+  el.innerHTML = sessions.map(s => `
+    <div class="session-item ${s.id===activeSessionId?'active':''}" onclick="loadSession(${s.id})">
+      <div class="session-title">${s.title}</div>
+      <div class="session-date">${s.updated_at}</div>
+      <button class="session-delete" onclick="event.stopPropagation();deleteSession(${s.id})">&#10005;</button>
+    </div>`).join('') || '<p class="text-muted text-sm p-3">No sessions yet</p>';
+}
+
+async function newSession() {
+  const s = await api('/api/chat/sessions', {method:'POST'});
+  activeSessionId = s.id;
+  document.getElementById('chatMessages').innerHTML = '';
+  await loadSessions();
+  appendMessage('assistant', "Hello! I'm your AI Finance Copilot. How can I help you today?");
+}
+
+async function loadSession(id) {
+  activeSessionId = id;
+  const msgs = await api(`/api/chat/sessions/${id}/messages`);
+  const el = document.getElementById('chatMessages');
+  el.innerHTML = '';
+  if (msgs.length === 0) {
+    el.innerHTML = '<div class="chat-welcome"><div class="chat-welcome-icon">&#129302;</div><h2>FinPilot AI</h2><p>Start your financial conversation.</p></div>';
+  } else {
+    msgs.forEach(m => appendMessage(m.role, m.content, false));
+    el.scrollTop = el.scrollHeight;
+  }
+  await loadSessions();
+}
+
+function appendMessage(role, content, scroll=true) {
+  const el = document.getElementById('chatMessages');
+  const welcome = el.querySelector('.chat-welcome');
+  if (welcome) welcome.remove();
+  const div = document.createElement('div');
+  div.className = `chat-msg chat-msg-${role}`;
+  const parsed = role === 'assistant' ? marked.parse(content) : `<p>${content.replace(/\n/g,'<br>')}</p>`;
+  div.innerHTML = `
+    <div class="msg-avatar">${role==='user'?'U':'AI'}</div>
+    <div class="msg-bubble">${parsed}</div>`;
+  el.appendChild(div);
+  if (scroll) el.scrollTop = el.scrollHeight;
+}
+
+function showTyping() {
+  const el = document.getElementById('chatMessages');
+  const div = document.createElement('div');
+  div.id = 'typingIndicator';
+  div.className = 'chat-msg chat-msg-assistant';
+  div.innerHTML = `<div class="msg-avatar">AI</div><div class="msg-bubble"><div class="typing-dots"><span></span><span></span><span></span></div></div>`;
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+}
+
+async function sendMessage() {
+  if (isLoading) return;
+  const input = document.getElementById('chatInput');
+  const msg = input.value.trim();
+  if (!msg) return;
+
+  if (!activeSessionId) {
+    const s = await api('/api/chat/sessions', {method:'POST'});
+    activeSessionId = s.id;
+  }
+
+  input.value = ''; input.style.height = 'auto';
+  appendMessage('user', msg);
+  isLoading = true;
+  document.getElementById('sendBtn').disabled = true;
+  showTyping();
+
+  const res = await api(`/api/chat/sessions/${activeSessionId}/messages`, {
+    method:'POST', body:JSON.stringify({message:msg})
+  });
+  document.getElementById('typingIndicator')?.remove();
+  appendMessage('assistant', res.response || res.error || 'Sorry, something went wrong.');
+  isLoading = false;
+  document.getElementById('sendBtn').disabled = false;
+  await loadSessions();
+}
+
+function sendQuick(msg) {
+  document.getElementById('chatInput').value = msg;
+  sendMessage();
+}
+
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+}
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+}
+
+async function deleteSession(id) {
+  if (!confirm('Delete this chat?')) return;
+  await api(`/api/chat/sessions/${id}`, {method:'DELETE'});
+  if (activeSessionId === id) {
+    activeSessionId = null;
+    document.getElementById('chatMessages').innerHTML = '<div class="chat-welcome"><div class="chat-welcome-icon">&#129302;</div><h2>FinPilot AI</h2><p>Select or start a new chat session.</p></div>';
+  }
+  await loadSessions();
+}
+
+function toggleVoice() {
+  if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+    toast('Voice not supported in this browser','error'); return;
+  }
+  if (recognition) { recognition.stop(); recognition = null; document.getElementById('voiceBtn').classList.remove('recording'); return; }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  recognition = new SR();
+  recognition.continuous = false; recognition.interimResults = false;
+  recognition.onresult = e => { document.getElementById('chatInput').value = e.results[0][0].transcript; };
+  recognition.onend = () => { recognition = null; document.getElementById('voiceBtn').classList.remove('recording'); };
+  recognition.start();
+  document.getElementById('voiceBtn').classList.add('recording');
+}
+
+loadSessions();
+</script>
+{% endblock %}

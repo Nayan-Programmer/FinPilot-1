@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block page_title %}Settings{% endblock %}
+{% block content %}
+<div class="page-section settings-page">
+
+  <div class="settings-layout">
+    <div class="settings-nav">
+      <button class="settings-tab active" onclick="showTab('profile',this)">👤 Profile</button>
+      <button class="settings-tab" onclick="showTab('security',this)">🔒 Security</button>
+      <button class="settings-tab" onclick="showTab('appearance',this)">🎨 Appearance</button>
+      <button class="settings-tab" onclick="showTab('account',this)">📊 Account Stats</button>
+    </div>
+
+    <div class="settings-content">
+
+      <!-- Profile Tab -->
+      <div class="settings-panel active" id="tab-profile">
+        <div class="card">
+          <h3>Profile Information</h3>
+          <div class="profile-avatar-section">
+            <div class="profile-avatar-xl">{{ current_user.name[0].upper() }}</div>
+            <div>
+              <div class="profile-name-display">{{ current_user.name }}</div>
+              <div class="text-muted text-sm">{{ current_user.email }}</div>
+              <span class="badge badge-blue mt-2">{{ current_user.role.replace('_', ' ').title() }}</span>
+            </div>
+          </div>
+          <form id="profileForm">
+            <div class="form-group">
+              <label>Full Name</label>
+              <input type="text" id="profileName" value="{{ current_user.name }}" required>
+            </div>
+            <div class="form-group">
+              <label>Email Address</label>
+              <input type="email" value="{{ current_user.email }}" disabled class="input-disabled">
+              <small class="form-hint">Email cannot be changed</small>
+            </div>
+            <div class="form-group">
+              <label>Role</label>
+              <input type="text" value="{{ current_user.role.replace('_', ' ').title() }}" disabled class="input-disabled">
+            </div>
+            <button type="submit" class="btn-primary">Save Profile</button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Security Tab -->
+      <div class="settings-panel" id="tab-security">
+        <div class="card">
+          <h3>Change Password</h3>
+          <form id="passwordForm">
+            <div class="form-group">
+              <label>Current Password</label>
+              <input type="password" id="curPassword" placeholder="Enter current password">
+            </div>
+            <div class="form-group">
+              <label>New Password</label>
+              <input type="password" id="newPassword" placeholder="Min 6 characters" minlength="6">
+            </div>
+            <div class="form-group">
+              <label>Confirm New Password</label>
+              <input type="password" id="confirmPassword" placeholder="Repeat new password">
+            </div>
+            <button type="submit" class="btn-primary">Update Password</button>
+          </form>
+        </div>
+        <div class="card mt-4">
+          <h3>Session Information</h3>
+          <div class="info-rows">
+            <div class="info-row"><span>Account Created</span><span id="memberSince">—</span></div>
+            <div class="info-row"><span>Current Role</span><span>{{ current_user.role.replace('_','  ').title() }}</span></div>
+            <div class="info-row"><span>Login Status</span><span class="text-green">● Active</span></div>
+          </div>
+          <a href="/logout" class="btn-outline" style="margin-top:16px;display:inline-block">Sign Out</a>
+        </div>
+      </div>
+
+      <!-- Appearance Tab -->
+      <div class="settings-panel" id="tab-appearance">
+        <div class="card">
+          <h3>Theme & Display</h3>
+          <div class="theme-options">
+            <div class="theme-option active" id="theme-dark" onclick="selectTheme('dark')">
+              <div class="theme-preview theme-preview-dark">
+                <div class="tp-sidebar"></div>
+                <div class="tp-content"><div class="tp-card"></div><div class="tp-card"></div></div>
+              </div>
+              <div class="theme-label">Dark Mode</div>
+            </div>
+            <div class="theme-option" id="theme-light" onclick="selectTheme('light')">
+              <div class="theme-preview theme-preview-light">
+                <div class="tp-sidebar"></div>
+                <div class="tp-content"><div class="tp-card"></div><div class="tp-card"></div></div>
+              </div>
+              <div class="theme-label">Light Mode</div>
+            </div>
+          </div>
+        </div>
+        <div class="card mt-4">
+          <h3>Currency & Format</h3>
+          <div class="form-group">
+            <label>Currency Symbol</label>
+            <select id="currencySelect" onchange="saveCurrency(this.value)">
+              <option value="$">$ — US Dollar</option>
+              <option value="€">€ — Euro</option>
+              <option value="£">£ — British Pound</option>
+              <option value="¥">¥ — Japanese Yen</option>
+              <option value="₹">₹ — Indian Rupee</option>
+              <option value="A$">A$ — Australian Dollar</option>
+              <option value="C$">C$ — Canadian Dollar</option>
+            </select>
+          </div>
+          <p class="form-hint">Currency symbol used throughout the app for display purposes.</p>
+        </div>
+      </div>
+
+      <!-- Account Stats Tab -->
+      <div class="settings-panel" id="tab-account">
+        <div class="card">
+          <h3>Account Statistics</h3>
+          <div class="stats-grid" id="accountStats">
+            <div class="stat-block"><div class="stat-block-val" id="st-exp">—</div><div class="stat-block-label">Expenses</div></div>
+            <div class="stat-block"><div class="stat-block-val" id="st-inv">—</div><div class="stat-block-label">Invoices</div></div>
+            <div class="stat-block"><div class="stat-block-val" id="st-bud">—</div><div class="stat-block-label">Budgets</div></div>
+            <div class="stat-block"><div class="stat-block-val" id="st-chat">—</div><div class="stat-block-label">AI Chats</div></div>
+            <div class="stat-block"><div class="stat-block-val" id="st-files">—</div><div class="stat-block-label">Files Analyzed</div></div>
+            <div class="stat-block"><div class="stat-block-val" id="st-reports">—</div><div class="stat-block-label">Reports</div></div>
+          </div>
+        </div>
+        <div class="card mt-4">
+          <h3>Data & Privacy</h3>
+          <p class="text-muted text-sm" style="margin-bottom:12px">Your financial data is stored locally in an encrypted SQLite database and never shared.</p>
+          <div class="info-rows">
+            <div class="info-row"><span>Data Storage</span><span class="text-green">Local SQLite</span></div>
+            <div class="info-row"><span>AI Processing</span><span>OpenAI API (optional)</span></div>
+            <div class="info-row"><span>File Uploads</span><span>Local server only</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function showTab(name, btn) {
+  document.querySelectorAll('.settings-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.settings-tab').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-'+name).classList.add('active');
+  btn.classList.add('active');
+  if (name === 'account') loadStats();
+}
+
+document.getElementById('profileForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const res = await api('/api/settings/profile', {method:'PUT', body: JSON.stringify({name: document.getElementById('profileName').value})});
+  if (res.success) toast('Profile updated!', 'success');
+  else toast(res.error || 'Update failed', 'error');
+});
+
+document.getElementById('passwordForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const np = document.getElementById('newPassword').value;
+  const cp = document.getElementById('confirmPassword').value;
+  if (np !== cp) { toast('Passwords do not match', 'error'); return; }
+  const res = await api('/api/settings/password', {method:'PUT', body: JSON.stringify({current_password: document.getElementById('curPassword').value, new_password: np})});
+  if (res.success) { toast('Password changed!', 'success'); document.getElementById('passwordForm').reset(); }
+  else toast(res.error || 'Change failed', 'error');
+});
+
+async function loadStats() {
+  const d = await api('/api/settings/stats');
+  document.getElementById('st-exp').textContent = d.expenses;
+  document.getElementById('st-inv').textContent = d.invoices;
+  document.getElementById('st-bud').textContent = d.budgets;
+  document.getElementById('st-chat').textContent = d.chat_sessions;
+  document.getElementById('st-files').textContent = d.files;
+  document.getElementById('st-reports').textContent = d.reports;
+  document.getElementById('memberSince').textContent = d.member_since;
+}
+
+function selectTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('finpilot-theme', theme);
+  document.getElementById('theme-dark').classList.toggle('active', theme === 'dark');
+  document.getElementById('theme-light').classList.toggle('active', theme === 'light');
+  toast('Theme updated', 'success');
+}
+
+function saveCurrency(val) {
+  localStorage.setItem('finpilot-currency', val);
+  toast('Currency preference saved', 'success');
+}
+
+// Init
+const currentTheme = localStorage.getItem('finpilot-theme') || 'dark';
+document.getElementById('theme-dark').classList.toggle('active', currentTheme === 'dark');
+document.getElementById('theme-light').classList.toggle('active', currentTheme === 'light');
+
+const savedCurrency = localStorage.getItem('finpilot-currency') || '$';
+document.getElementById('currencySelect').value = savedCurrency;
+</script>
+{% endblock %}

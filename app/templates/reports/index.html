@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}Reports{% endblock %}
+{% block page_title %}Financial Reports{% endblock %}
+{% block content %}
+<div class="page-section">
+  <div class="reports-layout">
+    <div class="report-generator">
+      <div class="card">
+        <h3>Generate Report</h3>
+        <div class="form-group">
+          <label>Report Type</label>
+          <select id="reportType" onchange="updatePeriodInput()">
+            <option value="monthly">Monthly</option>
+            <option value="quarterly">Quarterly</option>
+            <option value="annual">Annual</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Period</label>
+          <input type="month" id="reportPeriod" value="">
+        </div>
+        <button class="btn-primary btn-full" onclick="generateReport()" id="genBtn">
+          &#129302; Generate AI Report
+        </button>
+      </div>
+
+      <div class="card mt-4">
+        <h3>Report History</h3>
+        <div id="reportHistory"><p class="text-muted">No reports yet</p></div>
+      </div>
+    </div>
+
+    <div class="report-output" id="reportOutput">
+      <div class="report-empty">
+        <div class="report-empty-icon">&#128202;</div>
+        <h3>No Report Generated</h3>
+        <p>Select a period and click "Generate AI Report" to create a comprehensive financial analysis.</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const now = new Date();
+document.getElementById('reportPeriod').value = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+
+function updatePeriodInput() {
+  const type = document.getElementById('reportType').value;
+  const inp = document.getElementById('reportPeriod');
+  if (type === 'annual') {
+    inp.type = 'number'; inp.min = '2020'; inp.max = '2030'; inp.value = new Date().getFullYear();
+  } else if (type === 'quarterly') {
+    inp.type = 'text'; inp.placeholder = 'e.g. 2024Q2'; inp.value = `${new Date().getFullYear()}Q${Math.ceil((new Date().getMonth()+1)/3)}`;
+  } else {
+    inp.type = 'month'; inp.value = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  }
+}
+
+async function generateReport() {
+  const type = document.getElementById('reportType').value;
+  const period = document.getElementById('reportPeriod').value;
+  const btn = document.getElementById('genBtn');
+  btn.textContent = '&#9203; Generating...'; btn.disabled = true;
+
+  document.getElementById('reportOutput').innerHTML = `
+    <div class="report-loading">
+      <div class="spinner"></div>
+      <p>Analyzing your financial data and generating AI insights...</p>
+    </div>`;
+
+  const data = await api('/api/reports/generate', {method:'POST', body:JSON.stringify({type, period})});
+  btn.innerHTML = '&#129302; Generate AI Report'; btn.disabled = false;
+
+  if (data.error) { toast('Error generating report', 'error'); return; }
+
+  const catRows = (data.category_breakdown||[]).map(c =>
+    `<tr><td>${c.category}</td><td class="text-right">${fmt(c.amount)}</td><td class="text-right text-muted">${data.total_expenses?Math.round(c.amount/data.total_expenses*100):0}%</td></tr>`
+  ).join('');
+
+  document.getElementById('reportOutput').innerHTML = `
+    <div class="report-doc">
+      <div class="report-doc-header">
+        <h2>Financial Report</h2>
+        <div class="report-period">${data.period}</div>
+        <span class="badge badge-blue">${data.type} report</span>
+      </div>
+
+      <div class="report-kpis">
+        <div class="report-kpi"><div class="report-kpi-label">Revenue</div><div class="report-kpi-val text-green">${fmt(data.total_invoiced)}</div></div>
+        <div class="report-kpi"><div class="report-kpi-label">Expenses</div><div class="report-kpi-val text-red">${fmt(data.total_expenses)}</div></div>
+        <div class="report-kpi"><div class="report-kpi-label">Net Income</div><div class="report-kpi-val ${data.net_income>=0?'text-green':'text-red'}">${fmt(data.net_income)}</div></div>
+        <div class="report-kpi"><div class="report-kpi-label">Outstanding</div><div class="report-kpi-val text-amber">${fmt(data.outstanding)}</div></div>
+        <div class="report-kpi"><div class="report-kpi-label">Budget Used</div><div class="report-kpi-val">${data.budget_utilization}%</div></div>
+      </div>
+
+      <div class="report-section">
+        <h3>&#129302; AI Executive Summary</h3>
+        <div class="ai-summary">${marked.parse(data.ai_summary||'No summary available.')}</div>
+      </div>
+
+      <div class="report-section">
+        <h3>&#128202; Expense Breakdown by Category</h3>
+        <table class="data-table">
+          <thead><tr><th>Category</th><th class="text-right">Amount</th><th class="text-right">% of Total</th></tr></thead>
+          <tbody>${catRows}</tbody>
+          <tfoot><tr><td><strong>Total</strong></td><td class="text-right"><strong>${fmt(data.total_expenses)}</strong></td><td></td></tr></tfoot>
+        </table>
+      </div>
+    </div>`;
+
+  loadHistory();
+}
+
+async function loadHistory() {
+  const data = await api('/api/reports/history');
+  const el = document.getElementById('reportHistory');
+  if (!data.length) { el.innerHTML = '<p class="text-muted text-sm">No reports generated yet</p>'; return; }
+  el.innerHTML = data.map(r => `
+    <div class="history-item">
+      <div class="history-title">${r.title}</div>
+      <div class="history-meta">${r.created_at}</div>
+    </div>`).join('');
+}
+
+loadHistory();
+</script>
+{% endblock %}

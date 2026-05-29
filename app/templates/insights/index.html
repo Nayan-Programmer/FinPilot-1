@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+{% block title %}CFO Insights{% endblock %}
+{% block page_title %}CFO Insights{% endblock %}
+{% block topbar_actions %}
+<button class="btn-outline" onclick="refreshAll()">↻ Refresh All</button>
+{% endblock %}
+{% block content %}
+<div class="page-section">
+
+  <!-- Performance Overview -->
+  <div class="kpi-grid" id="perfGrid">
+    <div class="kpi-card"><div class="kpi-icon kpi-green">💹</div><div class="kpi-body"><div class="kpi-label">This Month Revenue</div><div class="kpi-value" id="p-rev">—</div><div class="kpi-sub" id="p-rev-chg"></div></div></div>
+    <div class="kpi-card"><div class="kpi-icon kpi-red">💸</div><div class="kpi-body"><div class="kpi-label">This Month Expenses</div><div class="kpi-value" id="p-exp">—</div><div class="kpi-sub" id="p-exp-chg"></div></div></div>
+    <div class="kpi-card"><div class="kpi-icon kpi-blue">📊</div><div class="kpi-body"><div class="kpi-label">Net Income</div><div class="kpi-value" id="p-net">—</div><div class="kpi-sub" id="p-net-chg"></div></div></div>
+    <div class="kpi-card"><div class="kpi-icon kpi-amber">📐</div><div class="kpi-body"><div class="kpi-label">Profit Margin</div><div class="kpi-value" id="p-margin">—</div><div class="kpi-sub">Net margin %</div></div></div>
+  </div>
+
+  <!-- Budget Alerts -->
+  <div id="budgetAlertSection"></div>
+
+  <!-- AI Insights Grid -->
+  <div class="insights-grid">
+
+    <!-- CFO Brief -->
+    <div class="insight-card insight-full">
+      <div class="insight-header">
+        <div class="insight-title-row">
+          <span class="insight-icon">🧠</span>
+          <h3>Executive CFO Brief</h3>
+          <span class="badge badge-purple">AI Generated</span>
+        </div>
+        <button class="btn-outline btn-sm" onclick="loadCfoBrief()" id="cfoBriefBtn">Generate Brief</button>
+      </div>
+      <div class="insight-body" id="cfoBriefContent">
+        <div class="insight-placeholder">
+          <div class="ip-icon">🧠</div>
+          <p>Click "Generate Brief" for an AI-powered executive summary of your financial position.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cost Savings + Risk side by side -->
+    <div class="insight-card">
+      <div class="insight-header">
+        <div class="insight-title-row">
+          <span class="insight-icon">💡</span>
+          <h3>Cost Savings</h3>
+        </div>
+        <button class="btn-outline btn-sm" onclick="loadCostSavings()" id="costBtn">Analyze</button>
+      </div>
+      <div class="insight-body" id="costContent">
+        <div class="insight-placeholder">
+          <div class="ip-icon">💡</div>
+          <p>AI will identify cost-saving opportunities based on your spending patterns.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="insight-card">
+      <div class="insight-header">
+        <div class="insight-title-row">
+          <span class="insight-icon">⚠️</span>
+          <h3>Risk Analysis</h3>
+        </div>
+        <button class="btn-outline btn-sm" onclick="loadRisk()" id="riskBtn">Assess Risk</button>
+      </div>
+      <div class="insight-body" id="riskContent">
+        <div class="insight-placeholder">
+          <div class="ip-icon">⚠️</div>
+          <p>AI will assess your financial risks and provide a risk score with recommendations.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Top Categories -->
+  <div class="bottom-row" style="margin-top:20px">
+    <div class="panel">
+      <div class="panel-header"><h3>Top Expense Categories (This Month)</h3></div>
+      <div id="topCategories"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><h3>Budget Status</h3><a href="/budgets" class="panel-link">Manage →</a></div>
+      <div id="budgetStatus"></div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+async function loadPerformance() {
+  const data = await api('/api/insights/performance');
+  document.getElementById('p-rev').textContent = fmt(data.current.revenue);
+  document.getElementById('p-exp').textContent = fmt(data.current.expenses);
+  document.getElementById('p-net').textContent = fmt(data.current.net);
+  document.getElementById('p-net').className = 'kpi-value ' + (data.current.net >= 0 ? 'text-green' : 'text-red');
+  document.getElementById('p-margin').textContent = data.margin + '%';
+  document.getElementById('p-margin').className = 'kpi-value ' + (data.margin >= 20 ? 'text-green' : data.margin >= 0 ? 'text-amber' : 'text-red');
+
+  const chgEl = (id, val) => {
+    const el = document.getElementById(id);
+    el.innerHTML = `<span class="${val >= 0 ? 'text-red' : 'text-green'}">${val >= 0 ? '+' : ''}${val}%</span> vs last month`;
+  };
+  chgEl('p-rev-chg', data.changes.revenue);
+  chgEl('p-exp-chg', data.changes.expenses);
+  chgEl('p-net-chg', data.changes.net);
+
+  // Budget alerts section
+  const alertEl = document.getElementById('budgetAlertSection');
+  const allAlerts = [...(data.budget_alerts.over || []), ...(data.budget_alerts.near || [])];
+  if (allAlerts.length) {
+    alertEl.innerHTML = `<div class="alert-row" style="margin-bottom:20px">
+      <strong>⚠ Budget Alerts:</strong>
+      ${allAlerts.map(a => `<span class="alert-tag ${a.utilization >= 100 ? 'tag-red' : 'tag-amber'}">${a.name}: ${a.utilization}%</span>`).join('')}
+    </div>`;
+  }
+
+  // Top categories
+  const catEl = document.getElementById('topCategories');
+  const maxAmt = Math.max(...data.top_categories.map(c => c.amount));
+  catEl.innerHTML = data.top_categories.map((c, i) => `
+    <div class="cat-row">
+      <div class="cat-rank">${i + 1}</div>
+      <div class="cat-info">
+        <div class="cat-name">${c.category}</div>
+        <div class="cat-bar"><div class="cat-bar-fill" style="width:${Math.round(c.amount/maxAmt*100)}%"></div></div>
+      </div>
+      <div class="cat-amount text-red">${fmt(c.amount)}</div>
+    </div>`).join('') || '<p class="text-muted text-sm">No data this month</p>';
+
+  // Budget status
+  const budgetEl = document.getElementById('budgetStatus');
+  budgetEl.innerHTML = `
+    <div class="budget-status-row">
+      <div class="bs-item bs-green"><div class="bs-num">${Math.max(0, (data.budget_alerts.over.length + data.budget_alerts.near.length) > 0 ? 0 : 1)}</div><div class="bs-label">On Track</div></div>
+      <div class="bs-item bs-amber"><div class="bs-num">${data.budget_alerts.near.length}</div><div class="bs-label">Near Limit</div></div>
+      <div class="bs-item bs-red"><div class="bs-num">${data.budget_alerts.over.length}</div><div class="bs-label">Exceeded</div></div>
+    </div>
+    ${data.budget_alerts.over.map(b => `<div class="budget-alert-item"><span class="text-red">🚨 ${b.name}</span><span>${b.utilization}%</span></div>`).join('')}
+    ${data.budget_alerts.near.map(b => `<div class="budget-alert-item"><span class="text-amber">⚡ ${b.name}</span><span>${b.utilization}%</span></div>`).join('')}`;
+}
+
+async function loadCfoBrief() {
+  const btn = document.getElementById('cfoBriefBtn');
+  btn.textContent = '⏳ Generating...'; btn.disabled = true;
+  document.getElementById('cfoBriefContent').innerHTML = '<div class="ai-loading"><div class="spinner"></div><p>Analyzing your financial data...</p></div>';
+  const data = await api('/api/insights/cfo-brief');
+  document.getElementById('cfoBriefContent').innerHTML = `<div class="ai-summary">${marked.parse(data.brief || 'Unable to generate brief.')}</div>`;
+  btn.textContent = '↻ Regenerate'; btn.disabled = false;
+}
+
+async function loadCostSavings() {
+  const btn = document.getElementById('costBtn');
+  btn.textContent = '⏳ Analyzing...'; btn.disabled = true;
+  document.getElementById('costContent').innerHTML = '<div class="ai-loading"><div class="spinner"></div><p>Finding savings...</p></div>';
+  const data = await api('/api/insights/cost-savings');
+  document.getElementById('costContent').innerHTML = `<div class="ai-summary compact">${marked.parse(data.recommendations || 'No data available.')}</div>`;
+  btn.textContent = '↻ Refresh'; btn.disabled = false;
+}
+
+async function loadRisk() {
+  const btn = document.getElementById('riskBtn');
+  btn.textContent = '⏳ Assessing...'; btn.disabled = true;
+  document.getElementById('riskContent').innerHTML = '<div class="ai-loading"><div class="spinner"></div><p>Assessing risks...</p></div>';
+  const data = await api('/api/insights/risk-analysis');
+  document.getElementById('riskContent').innerHTML = `<div class="ai-summary compact">${marked.parse(data.analysis || 'No data available.')}</div>`;
+  btn.textContent = '↻ Refresh'; btn.disabled = false;
+}
+
+function refreshAll() {
+  loadPerformance();
+  toast('Refreshed performance data', 'success');
+}
+
+loadPerformance();
+</script>
+{% endblock %}

@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% block title %}Forecasting{% endblock %}
+{% block page_title %}Forecasting & Trends{% endblock %}
+{% block content %}
+<div class="page-section">
+
+  <!-- Forecast KPIs -->
+  <div class="kpi-grid" id="forecastKPIs">
+    <div class="kpi-card"><div class="kpi-icon kpi-blue">📈</div><div class="kpi-body"><div class="kpi-label">Next Month Revenue</div><div class="kpi-value" id="fc-rev">—</div><div class="kpi-sub text-green">Projected</div></div></div>
+    <div class="kpi-card"><div class="kpi-icon kpi-red">📉</div><div class="kpi-body"><div class="kpi-label">Next Month Expenses</div><div class="kpi-value" id="fc-exp">—</div><div class="kpi-sub" id="fc-exp-trend">Projected</div></div></div>
+    <div class="kpi-card"><div class="kpi-icon kpi-green">💰</div><div class="kpi-body"><div class="kpi-label">Projected Net Income</div><div class="kpi-value" id="fc-net">—</div><div class="kpi-sub">Next 30 days</div></div></div>
+    <div class="kpi-card"><div class="kpi-icon kpi-amber">⏱</div><div class="kpi-body"><div class="kpi-label">Revenue / Expense Ratio</div><div class="kpi-value" id="fc-runway">—</div><div class="kpi-sub">Current ratio</div></div></div>
+  </div>
+
+  <!-- Revenue vs Expense Forecast -->
+  <div class="chart-card" style="margin-bottom:20px">
+    <div class="chart-header">
+      <div>
+        <h3>Revenue & Expense Forecast</h3>
+        <p class="chart-sub">Historical (12 months) + AI-predicted future (6 months)</p>
+      </div>
+      <div class="chart-legend">
+        <span class="legend-dot" style="background:#10b981"></span> Revenue
+        <span class="legend-dot" style="background:#f43f5e"></span> Expenses
+        <span class="legend-dot legend-dashed" style="background:#06b6d4"></span> Projected
+      </div>
+    </div>
+    <div style="height:300px;position:relative"><canvas id="forecastChart"></canvas></div>
+  </div>
+
+  <!-- Two charts side by side -->
+  <div class="charts-row" style="margin-bottom:20px">
+    <div class="chart-card">
+      <div class="chart-header">
+        <div><h3>Cash Flow</h3><p class="chart-sub">Monthly inflow vs outflow</p></div>
+      </div>
+      <div class="chart-wrap"><canvas id="cashflowChart"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-header">
+        <div><h3>Cumulative Cash Position</h3><p class="chart-sub">Running net cash balance</p></div>
+      </div>
+      <div class="chart-wrap"><canvas id="cumulativeChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Net Income Trend -->
+  <div class="chart-card">
+    <div class="chart-header">
+      <div><h3>Net Income Trend & Projection</h3><p class="chart-sub">Monthly profitability + 6-month outlook</p></div>
+    </div>
+    <div style="height:200px;position:relative"><canvas id="netIncomeChart"></canvas></div>
+  </div>
+
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const CHART_DEFAULTS = {
+  responsive: true, maintainAspectRatio: false,
+  plugins: { legend: { display: false } },
+  scales: {
+    y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#64748b', callback: v => '$' + v.toLocaleString() } },
+    x: { grid: { display: false }, ticks: { color: '#64748b', maxRotation: 45, font: { size: 10 } } }
+  }
+};
+
+async function initForecasting() {
+  const [data, summary, cashflow] = await Promise.all([
+    api('/api/forecasting/data'),
+    api('/api/forecasting/summary'),
+    api('/api/forecasting/cashflow')
+  ]);
+
+  // KPIs
+  document.getElementById('fc-rev').textContent = fmt(summary.next_month_revenue);
+  document.getElementById('fc-exp').textContent = fmt(summary.next_month_expense);
+  document.getElementById('fc-net').textContent = fmt(summary.next_month_net);
+  document.getElementById('fc-net').className = 'kpi-value ' + (summary.next_month_net >= 0 ? 'text-green' : 'text-red');
+  document.getElementById('fc-runway').textContent = summary.runway_months + 'x';
+  document.getElementById('fc-exp-trend').innerHTML =
+    `<span class="${summary.expense_growth_6m >= 0 ? 'text-red' : 'text-green'}">${summary.expense_growth_6m >= 0 ? '+' : ''}${summary.expense_growth_6m}%</span> 6m trend`;
+
+  const allMonths = [...data.historical_months, ...data.future_months];
+  const histLen = data.historical_months.length;
+
+  // Forecast Chart
+  new Chart(document.getElementById('forecastChart'), {
+    type: 'line',
+    data: {
+      labels: allMonths,
+      datasets: [
+        {
+          label: 'Revenue (Actual)', data: [...data.actuals_revenue, ...new Array(6).fill(null)],
+          borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.08)',
+          fill: true, tension: 0.4, borderWidth: 2.5, pointRadius: 3, pointBackgroundColor: '#10b981'
+        },
+        {
+          label: 'Expenses (Actual)', data: [...data.actuals_expense, ...new Array(6).fill(null)],
+          borderColor: '#f43f5e', backgroundColor: 'rgba(244,63,94,0.08)',
+          fill: true, tension: 0.4, borderWidth: 2.5, pointRadius: 3, pointBackgroundColor: '#f43f5e'
+        },
+        {
+          label: 'Revenue (Forecast)', data: [...new Array(histLen).fill(null), data.actuals_revenue[histLen-1], ...data.forecast_revenue],
+          borderColor: '#06b6d4', borderDash: [6,4], tension: 0.4, borderWidth: 2,
+          pointRadius: 3, pointBackgroundColor: '#06b6d4', fill: false
+        },
+        {
+          label: 'Expenses (Forecast)', data: [...new Array(histLen).fill(null), data.actuals_expense[histLen-1], ...data.forecast_expense],
+          borderColor: '#f59e0b', borderDash: [6,4], tension: 0.4, borderWidth: 2,
+          pointRadius: 3, pointBackgroundColor: '#f59e0b', fill: false
+        }
+      ]
+    },
+    options: { ...CHART_DEFAULTS, plugins: {
+      legend: { display: true, position: 'top', labels: { color: '#94a3b8', padding: 16, font: { size: 12 } } },
+      tooltip: { mode: 'index', intersect: false }
+    }}
+  });
+
+  // Cashflow chart
+  new Chart(document.getElementById('cashflowChart'), {
+    type: 'bar',
+    data: {
+      labels: cashflow.map(c => c.month),
+      datasets: [
+        { label: 'Inflow', data: cashflow.map(c => c.inflow), backgroundColor: 'rgba(16,185,129,0.7)', borderRadius: 4, borderSkipped: false },
+        { label: 'Outflow', data: cashflow.map(c => c.outflow), backgroundColor: 'rgba(244,63,94,0.7)', borderRadius: 4, borderSkipped: false }
+      ]
+    },
+    options: { ...CHART_DEFAULTS,
+      plugins: { legend: { display: true, position: 'top', labels: { color: '#94a3b8', font: { size: 11 } } } },
+      scales: { ...CHART_DEFAULTS.scales, x: { ...CHART_DEFAULTS.scales.x, stacked: false } }
+    }
+  });
+
+  // Cumulative chart
+  new Chart(document.getElementById('cumulativeChart'), {
+    type: 'line',
+    data: {
+      labels: cashflow.map(c => c.month),
+      datasets: [{
+        label: 'Cumulative Cash', data: cashflow.map(c => c.cumulative),
+        borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.08)',
+        fill: true, tension: 0.4, borderWidth: 2.5, pointRadius: 3
+      }]
+    },
+    options: CHART_DEFAULTS
+  });
+
+  // Net income chart
+  const netColors = allMonths.map((_, i) => {
+    const val = i < histLen ? (data.net_income[i] || 0) : (data.projected_net[i - histLen] || 0);
+    return val >= 0 ? 'rgba(16,185,129,0.7)' : 'rgba(244,63,94,0.7)';
+  });
+  new Chart(document.getElementById('netIncomeChart'), {
+    type: 'bar',
+    data: {
+      labels: allMonths,
+      datasets: [{
+        label: 'Net Income',
+        data: [...data.net_income, ...data.projected_net],
+        backgroundColor: netColors,
+        borderRadius: 6, borderSkipped: false
+      }]
+    },
+    options: { ...CHART_DEFAULTS,
+      plugins: {
+        legend: { display: false },
+        annotation: {}
+      }
+    }
+  });
+}
+
+initForecasting();
+</script>
+{% endblock %}
